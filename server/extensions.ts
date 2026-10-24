@@ -9,8 +9,9 @@ import { extensionSettingsFiles } from './extension-settings.ts'
 import { watchRoots } from './watch-roots.ts'
 import { actionExec } from './actions.ts'
 import type { ExtensionAction } from './actions.ts'
+import { slashed } from '../lib/paths.ts'
 import type { JsonValue } from '@earendil-works/chord'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import type {
   ConversationDocToken,
   Extension,
@@ -630,20 +631,22 @@ export async function loadExtensions(
   // A restarted Vite starts with an empty module graph, so the next change reloads every extension.
   let graphLost = false
   // Vite owns the transitive local module graph; query-string imports do not.
-  const onChange = (file: string) => {
+  const onChange = (raw: string) => {
+    // The watcher reports OS paths; Vite's module graph keys and these checks use `/` on every platform.
+    const file = slashed(raw)
     if (
       closed ||
       ![host.ultimateRoot, host.projectRoot, ...roots.slice(1).map((root) => root.path)].some(
-        (root) => resolve(file).startsWith(root + '/'),
+        (root) => file.startsWith(slashed(root) + '/'),
       ) ||
       file.includes('/node_modules/')
     )
       return
-    if (settingsFiles.includes(resolve(file))) {
+    if (settingsFiles.some((settings) => slashed(settings) === file)) {
       chain = chain.then(() => reloadSettings()).catch(() => changed())
       return
     }
-    const directory = directories.find((root) => file.startsWith(root + '/'))
+    const directory = directories.find((root) => file.startsWith(slashed(root) + '/'))
     if (!directory && !/\.[cm]?[jt]s$/.test(file)) return
     if (graphLost) {
       graphLost = false
@@ -659,16 +662,19 @@ export async function loadExtensions(
           if (visited.has(module)) return
           visited.add(module)
           for (const name of records.keys())
-            if (module.file === join(records.get(name)!.path, 'server.ts')) selected.add(name)
+            if (module.file === slashed(join(records.get(name)!.path, 'server.ts')))
+              selected.add(name)
           for (const importer of module.importers) visit(importer)
         }
         for (const module of modules ?? []) visit(module)
         for (const module of visited) vite.moduleGraph.invalidateModule(module)
-        const name = directory ? file.slice(directory.length + 1).split('/')[0] : undefined
+        const name = directory
+          ? file.slice(slashed(directory).length + 1).split('/')[0]
+          : undefined
         const servers = new Set(selected)
         if (name) {
           selected.add(name)
-          if (directory && file === join(directory, name, 'server.ts')) servers.add(name)
+          if (directory && file === slashed(join(directory, name, 'server.ts'))) servers.add(name)
         }
         await reload(selected, servers)
       })
@@ -678,15 +684,16 @@ export async function loadExtensions(
         return changed()
       })
   }
-  const onStructure = (file: string) => {
-    const directory = directories.find((root) => file.startsWith(root + '/'))
-    if (!directory) return onChange(file)
+  const onStructure = (raw: string) => {
+    const file = slashed(raw)
+    const directory = directories.find((root) => file.startsWith(slashed(root) + '/'))
+    if (!directory) return onChange(raw)
     if (graphLost) {
       graphLost = false
       chain = chain.then(() => reload()).catch(() => changed())
       return
     }
-    const name = file.slice(directory.length + 1).split('/')[0]
+    const name = file.slice(slashed(directory).length + 1).split('/')[0]
     chain = chain.then(() => reload(new Set([name]), new Set([name]))).catch(() => changed())
   }
   const structure = ['add', 'unlink', 'addDir', 'unlinkDir'] as const

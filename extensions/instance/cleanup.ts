@@ -69,6 +69,9 @@ export async function cleanPreview(home: string) {
       }
       await git(common, '--git-dir', common, 'worktree', 'prune')
     }
+    // Windows cannot remove a file whose handle is open, so release the lock databases before deleting the home.
+    for (const database of locks) database.close()
+    locks.length = 0
     await rm(home, { recursive: true, force: true })
     return true
   } finally {

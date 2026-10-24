@@ -4,6 +4,7 @@ import type { Plugin } from 'vite-plus'
 import { discoverExtensions } from './discovery.ts'
 import { discoveryRoots } from './project.ts'
 import { watchRoots } from './watch-roots.ts'
+import { slashed } from '../lib/paths.ts'
 import { extensionSettingsFiles } from './extension-settings.ts'
 import { useProjectSetup } from './project-setup.ts'
 
@@ -48,7 +49,7 @@ export function extensionModules(
       if (
         !importer ||
         options.ssr ||
-        !roots.slice(1).some((root) => importer.startsWith(root + '/')) ||
+        !roots.slice(1).some((root) => slashed(importer).startsWith(slashed(root) + '/')) ||
         id.startsWith('.') ||
         id.startsWith('/') ||
         id.startsWith('\0')
@@ -82,7 +83,8 @@ export function extensionModules(
       )
       const entries = facets.map(
         (entry) =>
-          `${JSON.stringify(join(entry.path, 'web.tsx'))}: () => import(${JSON.stringify('/@fs/' + join(entry.path, 'web.tsx'))})`,
+          // `/`-separated keys: the client reads the extension's name out of this path, and Vite imports by URL.
+          `${JSON.stringify(slashed(join(entry.path, 'web.tsx')))}: () => import(${JSON.stringify('/@fs/' + slashed(join(entry.path, 'web.tsx')))})`,
       )
       return `export const loaders = {${entries.join(',')}};`
     },
@@ -90,7 +92,7 @@ export function extensionModules(
       if (
         this.environment.name !== 'client' ||
         type !== 'create' ||
-        !roots.some((root) => file.startsWith(root + '/'))
+        !roots.some((root) => slashed(file).startsWith(slashed(root) + '/'))
       )
         return undefined
       const styles = this.environment.moduleGraph.getModuleById(
@@ -100,15 +102,18 @@ export function extensionModules(
     },
     configureServer(server) {
       server.watcher.add([...roots, ...settingsFiles])
-      const structure = (file: string) => {
+      // The watcher reports OS paths, so compare them in `/` form with the roots and settings files.
+      const isSettings = (file: string) => settingsFiles.some((path) => slashed(path) === file)
+      const structure = (raw: string) => {
+        const file = slashed(raw)
         if (
-          !settingsFiles.includes(file) &&
-          !roots.some((root) => file === root || file.startsWith(root + '/'))
+          !isSettings(file) &&
+          !roots.some((root) => file === slashed(root) || file.startsWith(slashed(root) + '/'))
         )
           return
         for (const id of [
           resolved,
-          ...(file === trustFile ? [join(ultimateRoot, 'web/src/index.css')] : []),
+          ...(file === slashed(trustFile) ? [join(ultimateRoot, 'web/src/index.css')] : []),
         ]) {
           const module = server.moduleGraph.getModuleById(id)
           if (module) {
@@ -124,7 +129,7 @@ export function extensionModules(
         structure(root)
       })
       const settingsChanged = (file: string) => {
-        if (settingsFiles.includes(file)) structure(file)
+        if (isSettings(slashed(file))) structure(file)
       }
       server.watcher.on('change', settingsChanged)
       for (const event of ['add', 'unlink', 'addDir', 'unlinkDir'] as const)

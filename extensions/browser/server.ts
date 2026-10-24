@@ -8,17 +8,41 @@ import { defineExtension, defineTool, section } from '@earendil-works/pi-durable
 import { chromium, type Browser, type BrowserContext, type Page } from 'playwright-core'
 import type { ExtensionHost } from '../../server/extensions.ts'
 
+/** Where Playwright keeps downloaded browsers: `%LOCALAPPDATA%` on Windows, `~/.cache` everywhere else. */
+const playwrightCache = () =>
+  process.platform === 'win32'
+    ? join(process.env.LOCALAPPDATA ?? join(homedir(), 'AppData/Local'), 'ms-playwright')
+    : join(homedir(), '.cache/ms-playwright')
+
+/** Chromium's executable inside a Playwright `chromium-<version>` folder. */
+const unpacked = () =>
+  process.platform === 'win32' ? 'chrome-win64/chrome.exe' : 'chrome-linux64/chrome'
+
+/** Chrome and Edge as installed by a person, which run fine under Playwright. */
+const installed = () =>
+  process.platform === 'win32'
+    ? [process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)'], process.env.LOCALAPPDATA].flatMap(
+        (root) =>
+          root
+            ? [
+                join(root, 'Google/Chrome/Application/chrome.exe'),
+                join(root, 'Microsoft/Edge/Application/msedge.exe'),
+              ]
+            : [],
+      )
+    : ['/usr/bin/chromium', '/usr/bin/google-chrome-stable']
+
 export async function browserBinary() {
-  const cache = join(homedir(), '.cache/ms-playwright')
+  const cache = playwrightCache()
   const candidates = [
     process.env.ULTIMATE_CHROMIUM,
-    '/usr/bin/chromium',
-    '/usr/bin/google-chrome-stable',
+    // Playwright's own download first: it matches the playwright-core that launches it.
     ...(await readdir(cache).catch(() => []))
       .filter((name) => name.startsWith('chromium-'))
       .toSorted()
       .toReversed()
-      .map((name) => join(cache, name, 'chrome-linux64/chrome')),
+      .map((name) => join(cache, name, unpacked())),
+    ...installed(),
   ].filter((path): path is string => !!path)
   for (const path of candidates) {
     try {
@@ -29,7 +53,7 @@ export async function browserBinary() {
     }
   }
   throw new Error(
-    'No Chromium found. Set ULTIMATE_CHROMIUM or install /usr/bin/chromium, /usr/bin/google-chrome-stable, or ~/.cache/ms-playwright/chromium-*/chrome-linux64/chrome.',
+    `No Chromium found. Set ULTIMATE_CHROMIUM, or install Google Chrome, Edge, or Playwright's Chromium (${cache}/chromium-*/${unpacked()}).`,
   )
 }
 

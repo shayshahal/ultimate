@@ -7,7 +7,7 @@ import { context } from '../server/harness.ts'
 import { compareExtensions, discoverExtensions } from '../server/discovery.ts'
 import { defaultOff } from '../shared/extension-api.ts'
 import { ProjectTrustStore } from '@earendil-works/pi-coding-agent'
-import { createRegistry, toolRenderers } from '../web/src/sdk/registry.ts'
+import { createRegistry, extensionName, toolRenderers } from '../web/src/sdk/registry.ts'
 
 const homes: string[] = []
 const servers: Awaited<ReturnType<typeof fauxServer>>[] = []
@@ -199,6 +199,14 @@ const tools = async (server: Awaited<ReturnType<typeof fauxServer>>) =>
   (await server.root.agent(context)).tools.map((tool) => tool.name).toSorted()
 const web = async (server: Awaited<ReturnType<typeof fauxServer>>) =>
   Object.keys((await server.vite.ssrLoadModule('virtual:ultimate/web-facets')).loaders)
+
+it.concurrent('lists every web facet under a path the client can name its extension from', async () => {
+  const { server } = await fixture()
+  const paths = await web(server)
+  expect(paths.length).toBeGreaterThan(0)
+  // A path the client cannot read an extension name from drops that extension's whole UI.
+  expect(paths.filter((path) => extensionName(path) === undefined)).toEqual([])
+})
 
 it.concurrent('layers settings live, installs and uninstalls tools and web facets, and notices unknown names once', async () => {
   const { home, projectRoot, server } = await fixture()

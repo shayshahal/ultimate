@@ -352,8 +352,9 @@ async function checkTypes() {
     active ? { generation: active.generation, pid: active.child.pid } : undefined,
   )
   const child = spawn(
-    join(ultimateRoot, 'node_modules/.bin/tsc'),
-    ['--noEmit', '-p', 'tsconfig.swap.json'],
+    // TypeScript's bin is a script, which Windows cannot spawn directly; node runs it everywhere.
+    process.execPath,
+    [join(ultimateRoot, 'node_modules/typescript/bin/tsc'), '--noEmit', '-p', 'tsconfig.swap.json'],
     { cwd: ultimateRoot, stdio: ['ignore', 'pipe', 'pipe'] },
   )
   let output = ''
