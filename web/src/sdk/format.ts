@@ -28,13 +28,17 @@ export function formatDuration(ms: number): string {
 /** How long ago a time was; in lib/ so server code (model text, range lists) says it the same way. */
 export { formatAgo } from '../../../lib/ago.ts'
 
+/** `path` with `/` separators: the server reports OS paths, and these comparisons read the same everywhere. */
+export const slashed = (path: string) => path.replaceAll('\\', '/')
+
 /** Show `path` relative to `cwd` when inside it, else with `~` for `home` (`system.machine.home`). */
 export function shortenPath(path: string, options: { cwd?: string; home?: string } = {}): string {
-  const { cwd, home } = options
-  if (cwd && path.startsWith(cwd.replace(/\/$/, '') + '/'))
-    return path.slice(cwd.replace(/\/$/, '').length + 1)
-  if (home && (path === home || path.startsWith(home + '/'))) return '~' + path.slice(home.length)
-  return path
+  const full = slashed(path)
+  const cwd = options.cwd && slashed(options.cwd).replace(/\/$/, '')
+  const home = options.home && slashed(options.home)
+  if (cwd && full.startsWith(cwd + '/')) return full.slice(cwd.length + 1)
+  if (home && (full === home || full.startsWith(home + '/'))) return '~' + full.slice(home.length)
+  return full
 }
 
 /** Elide the middle of a path to at most `max` characters, keeping its first and last segments. */

@@ -13,13 +13,18 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { SystemInfo } from '../../../shared/protocol.ts'
 import { actions, shellKeys } from '../sdk/actions.ts'
-import { shortenPath } from '../sdk/format.ts'
+import { shortenPath, slashed } from '../sdk/format.ts'
 import { useExtensions, useRegionOpen, useStore, useSystem, useUiState } from '../sdk/hooks.ts'
 import { HOME, panelItems, shownPanels, slotItems, surfaceItems } from '../sdk/registry.ts'
 import { useViewport } from '../sdk/viewport.ts'
 import { Slot } from './boundary.tsx'
 import { Shortcut } from './palette.tsx'
 import { sidebarWidthBeyondPhone } from './primitives.tsx'
+
+/** Whether this server's state lives outside `~/.ultimate/projects`, as a test preview's does. */
+const isPreview = (system: SystemInfo | undefined) =>
+  !!system &&
+  !slashed(system.persistence.path).startsWith(`${slashed(system.machine.home)}/.ultimate/projects/`)
 
 /**
  * The project as tabs name it: its folder from home. A branch's checkout (`<home>/worktrees/<id>`) is the project's
@@ -29,15 +34,12 @@ import { sidebarWidthBeyondPhone } from './primitives.tsx'
 export function projectTitle(system: SystemInfo | undefined) {
   if (!system) return undefined
   const { home } = system.machine
-  const worktree = /\/\.ultimate\/projects\/(.+)-[\da-f]{8}\/worktrees\/(\d+)$/.exec(
-    system.project.root,
-  )
+  const root = slashed(system.project.root)
+  const worktree = /\/\.ultimate\/projects\/(.+)-[\da-f]{8}\/worktrees\/(\d+)$/.exec(root)
   const project = worktree
     ? `${worktree[1]} #${worktree[2]}`
     : shortenPath(system.project.root, { home })
-  return system.persistence.path.startsWith(`${home}/.ultimate/projects/`)
-    ? project
-    : `preview · ${project}`
+  return isPreview(system) ? `preview · ${project}` : project
 }
 
 /**
@@ -47,7 +49,7 @@ export function projectTitle(system: SystemInfo | undefined) {
 export function projectName(system: SystemInfo | undefined) {
   if (!system) return ''
   const worktree = /\/\.ultimate\/projects\/(.+)-[\da-f]{8}\/worktrees\/(\d+)$/.exec(
-    system.project.root,
+    slashed(system.project.root),
   )
   const name = worktree?.[1] ?? system.project.name
   const own = name.toLowerCase() === 'ultimate'
@@ -65,8 +67,7 @@ export const ProjectChip = forwardRef<
 >(function ProjectChip({ menu, className, children, ...props }, ref) {
   const system = useSystem()
   const name = projectName(system)
-  const preview =
-    system && !system.persistence.path.startsWith(`${system.machine.home}/.ultimate/projects/`)
+  const preview = isPreview(system)
   if (!system || (!name && !preview && !menu)) return null
   const body = (
     <>
