@@ -1,7 +1,7 @@
 ---
 name: coordinator
-description: Coordinates one feature for @ultimate (Claude Code Opus 5.5, high thinking)
-model: claude-code/claude-opus-5-5
+description: Coordinates one feature for @ultimate (DeepSeek V4 Pro, high thinking)
+model: opencode-go/deepseek-v4-pro
 thinking: high
 addTools: []
 ---
