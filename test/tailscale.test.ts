@@ -62,8 +62,10 @@ else if (args[0] === 'serve') {
 `,
   )
   await chmod(script, 0o755)
-  // This file runs its own stub CLI from PATH, not the missing one test/setup.ts names for every other server.
-  vi.stubEnv('TAILSCALE_COMMAND', undefined)
+  // This file runs its own stub CLI, named directly and put on PATH, instead of the missing one test/setup.ts names for
+  // every other server. Naming it keeps a platform that cannot run the shebang script (Windows) from finding another
+  // Tailscale install and publishing on the real tailnet.
+  vi.stubEnv('TAILSCALE_COMMAND', script)
   vi.stubEnv('PATH', home)
   const invocations = async () => {
     try {
