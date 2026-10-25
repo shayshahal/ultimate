@@ -3,9 +3,8 @@
  * tailnet address its machine registered with the cloud elsewhere. Codemode reads through it and Messages’
  * Ultimate-to-Ultimate messages travel it. Nothing falls back to a copy.
  */
-import { hostname } from 'node:os'
 import type { JsonValue } from '@earendil-works/chord'
-import { cloudConfig, fetchRegister, satelliteAddress } from './cloud.ts'
+import { cloudConfig, cloudMachine, fetchRegister, satelliteAddress } from './cloud.ts'
 import type { Register } from './cloud.ts'
 import { projectIdentity } from './project-identity.ts'
 import type { ExtensionHost } from '../server/extensions.ts'
@@ -70,16 +69,11 @@ export function resolveProject(
   )
 }
 
-/** This machine's name: the cloud's `machine` setting, else the host name. */
-async function machineName(host: Pick<ExtensionHost, 'userHome' | 'notice'>) {
-  return (await cloudConfig(host))?.machine ?? hostname()
-}
-
 /** This instance as another one names it: its project's name and this machine's name. */
 export async function selfAddress(host: ExtensionHost) {
   const current = (await host.projects()).find((item) => item.current)
   if (!current) throw new Error('This project is not listed among the projects')
-  return { project: current.name, machine: await machineName(host) }
+  return { project: current.name, machine: await cloudMachine(host) }
 }
 
 /** Where `project` answers, as resolveProject decides, reading the register only when this machine cannot answer. */
@@ -91,7 +85,7 @@ export async function locate(host: ExtensionHost, project: string, machine?: str
       key: project.includes('/') && item.root ? (await projectIdentity(item.root))?.key : undefined,
     })),
   )
-  const here = machine === undefined ? undefined : machine === (await machineName(host))
+  const here = machine === undefined ? undefined : machine === (await cloudMachine(host))
   // A satellite never backs up, so its address comes from the user's settings, not the register.
   const satellite = here === false ? await satelliteAddress(host, machine!, project) : undefined
   if (satellite)

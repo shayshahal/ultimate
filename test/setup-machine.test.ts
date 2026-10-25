@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { expect, it } from 'vitest'
 import {
   type AgentState,
@@ -30,7 +31,7 @@ it("renders the project's ultimate unit with absolute paths", () => {
   const ultimate = units[0].content
   expect(line(ultimate, 'WorkingDirectory')).toEqual(['WorkingDirectory=/home/u/work/app'])
   expect(line(ultimate, 'ExecStart')).toEqual([
-    'ExecStart=/opt/node/bin/node /home/u/ultimate/bin/ultimate.ts',
+    `ExecStart=${options.node} ${join(options.clone, 'bin/ultimate.ts')}`,
   ])
   expect(line(ultimate, 'Environment')).toContain('Environment=ULTIMATE_NO_OPEN=1')
   expect(line(ultimate, 'Environment').filter((entry) => entry.includes('PATH='))).toEqual([
@@ -106,7 +107,7 @@ it('renders the darwin agent with the systemd arguments, PATH, logs and on-failu
   expect(strings(app.Label)).toEqual(['com.ultimate.app'])
   expect(strings(app.ProgramArguments)).toEqual([
     '/opt/node/bin/node',
-    '/home/u/ultimate/bin/ultimate.ts',
+    join(options.clone, 'bin/ultimate.ts'),
   ])
   expect(strings(app.WorkingDirectory)).toEqual(['/home/u/work/app'])
   expect(app.EnvironmentVariables).toContain('<key>ULTIMATE_NO_OPEN</key>\n    <string>1</string>')
@@ -116,7 +117,7 @@ it('renders the darwin agent with the systemd arguments, PATH, logs and on-failu
   expect(app.RunAtLoad).toBe('<true/>')
   expect(app.KeepAlive).toContain('<key>SuccessfulExit</key>\n    <false/>')
   expect(strings(app.StandardOutPath)).toEqual([
-    '/Users/u/Library/Logs/ultimate/com.ultimate.app.log',
+    join('/Users/u', 'Library/Logs/ultimate/com.ultimate.app.log'),
   ])
   expect(app.StandardErrorPath).toBe(app.StandardOutPath)
 })

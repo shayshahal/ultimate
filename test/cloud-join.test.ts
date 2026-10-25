@@ -102,7 +102,10 @@ it('stores both secrets and cloud.url/cloud.machine after the cloud answers 200,
     ULTIMATE_CLOUD_TOKEN: TOKEN,
     ULTIMATE_CLOUD_SNAPSHOT_KEY: KEY,
   })
-  expect((await stat(path(userHome, '.ultimate/secrets.json'))).mode & 0o777).toBe(0o600)
+  // NTFS keeps this file's privacy in the parent folder's ACL: the only mode Windows reports is 0o666.
+  expect((await stat(path(userHome, '.ultimate/secrets.json'))).mode & 0o777).toBe(
+    process.platform === 'win32' ? 0o666 : 0o600,
+  )
   // Other settings stay.
   expect(await settings()).toEqual({
     theme: 'dark',

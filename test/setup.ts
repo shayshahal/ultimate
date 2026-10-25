@@ -15,12 +15,17 @@ for (const key of Object.keys(process.env))
   if (/_API_KEY$|_OAUTH_TOKEN$/.test(key)) delete process.env[key]
 // Test servers, and the previews they start, must never publish on this machine's tailnet: they find no Tailscale CLI.
 process.env.TAILSCALE_COMMAND = join(testTmpdir, 'no-tailscale')
-// Instance startup sweeps must never inspect the machine's real preview homes during tests.
-const previousTmpdir = process.env.TMPDIR
-process.env.TMPDIR = testTmpdir
+// Instance startup sweeps must never inspect the machine's real preview homes during tests: Windows reads TMP and
+// TEMP, the POSIX platforms TMPDIR.
+const previousTmpdir = Object.fromEntries(
+  ['TMPDIR', 'TMP', 'TEMP'].map((key) => [key, process.env[key]]),
+) as Record<string, string | undefined>
+for (const key of Object.keys(previousTmpdir)) process.env[key] = testTmpdir
 
 afterAll(() => {
-  if (previousTmpdir === undefined) delete process.env.TMPDIR
-  else process.env.TMPDIR = previousTmpdir
+  for (const [key, value] of Object.entries(previousTmpdir)) {
+    if (value === undefined) delete process.env[key]
+    else process.env[key] = value
+  }
   rmSync(testTmpdir, { recursive: true, force: true })
 })

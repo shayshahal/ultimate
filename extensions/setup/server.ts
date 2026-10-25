@@ -15,6 +15,7 @@ import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { discoverAgents } from '../../lib/agents.ts'
+import { slashed } from '../../lib/paths.ts'
 import { isolatable } from '../../lib/git.ts'
 import { implementAction } from '../../lib/actions.ts'
 import { readSettings, userSettingsPath } from '../../lib/settings.ts'
@@ -138,12 +139,14 @@ async function agentsArea(host: CheckHost): Promise<SetupIssue[]> {
   return issues
 }
 
-const shortPath = (host: Pick<CheckHost, 'projectRoot' | 'userHome'>, path: string) =>
-  path.startsWith(`${host.projectRoot}/`)
-    ? path.slice(host.projectRoot.length + 1)
-    : path.startsWith(host.userHome)
-      ? `~${path.slice(host.userHome.length)}`
-      : path
+/** `path` under the project or the user's home, as the UI and docs write it: `~/.ultimate/…` with forward slashes. */
+const shortPath = (host: Pick<CheckHost, 'projectRoot' | 'userHome'>, path: string) => {
+  const file = slashed(path)
+  const projectRoot = slashed(host.projectRoot)
+  const userHome = slashed(host.userHome)
+  if (file.startsWith(`${projectRoot}/`)) return file.slice(projectRoot.length + 1)
+  return file.startsWith(userHome) ? `~${file.slice(userHome.length)}` : file
+}
 
 async function providersArea(host: CheckHost): Promise<SetupIssue | undefined> {
   const providers = await host.want(HealthApi)?.providers()

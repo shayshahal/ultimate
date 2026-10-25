@@ -3,7 +3,7 @@ import { randomUUID } from 'node:crypto'
 import { acquireLock, alive } from '../../server/lock.ts'
 import { access, mkdir } from 'node:fs/promises'
 import { constants } from 'node:fs'
-import { join } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import { defineExtension } from '@earendil-works/pi-durable'
 import { exec } from '../../lib/exec.ts'
 import { readJson, writeJson } from '../../lib/json-file.ts'
@@ -33,6 +33,26 @@ function target(serve: Serve, dns: string, port: number) {
     return undefined
   return proxy && /^http:\/\/127\.0\.0\.1:\d+$/.test(proxy) ? proxy : undefined
 }
+/** The Tailscale CLI, in the order it is tried: TAILSCALE_COMMAND, then PATH, then where the installers put it. */
+export function tailscaleCommands(
+  env: Record<string, string | undefined> = process.env,
+  platform: NodeJS.Platform = process.platform,
+) {
+  // TAILSCALE_COMMAND names another CLI; tests point it at a missing one so test servers stay off the tailnet. A named
+  // CLI that is missing means none: its list holds no fallback.
+  if (env.TAILSCALE_COMMAND) return [env.TAILSCALE_COMMAND]
+  return [
+    'tailscale',
+    // The app installs the CLI where a PATH inherited from before the install does not see it.
+    ...(platform === 'win32'
+      ? [env.PROGRAMFILES, env['PROGRAMFILES(X86)']].flatMap((root) =>
+          root ? [join(root, 'Tailscale', 'tailscale.exe')] : [],
+        )
+      : platform === 'darwin'
+        ? ['/Applications/Tailscale.app/Contents/MacOS/Tailscale']
+        : []),
+  ]
+}
 /** A claimed HTTPS port. A project's entry outlives its server so the project keeps its address; a preview's does not. */
 type Entry = { port: number; owner: string; temporary?: true }
 export const reloadOnSettings = true
@@ -53,9 +73,7 @@ export const actions: Record<string, ExtensionAction> = {
 
 export default function tailscale(host: ExtensionHost) {
   let status: Status = { state: 'disabled', allow: [] }
-  // TAILSCALE_COMMAND names another CLI; tests point it at a missing one so test servers stay off the tailnet.
-  const override = process.env.TAILSCALE_COMMAND
-  let cli = override ?? 'tailscale'
+  let cli = tailscaleCommands()[0]
   let ownedPort: number | undefined
   let localTarget: string | undefined
   let dnsName: string | undefined
@@ -74,6 +92,21 @@ export default function tailscale(host: ExtensionHost) {
     statuses.set(host, next)
   }
   const command = (args: string[]) => exec(cli, args, { timeout: 15000, maxBuffer: 1024 * 1024 })
+  /** The first candidate CLI that answers `status --json`, in `tailscaleCommands` order. */
+  async function cliStatus() {
+    for (const candidate of tailscaleCommands()) {
+      cli = candidate
+      try {
+        // A bare name resolves through PATH; a path must exist and be executable before it runs.
+        if (isAbsolute(candidate)) await access(candidate, constants.X_OK)
+        return (await command(['status', '--json'])).stdout
+      } catch (error) {
+        // A candidate that is not there is no CLI at all; the next one may be.
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+    }
+    return undefined
+  }
   const fail = (state: Status['state'], hint: string) => {
     set({ state, allow: status.allow, hint })
     host.notice(`Tailscale: ${hint}`)
@@ -122,26 +155,15 @@ export default function tailscale(host: ExtensionHost) {
         {},
       )
       set({ state: 'starting', allow: [] })
-      let output: string
-      try {
-        output = (await command(['status', '--json'])).stdout
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-        try {
-          // A named CLI that is missing means none: the macOS app is only the default's fallback.
-          if (override) throw error
-          cli = '/Applications/Tailscale.app/Contents/MacOS/Tailscale'
-          await access(cli, constants.X_OK)
-        } catch {
-          // On by default, so a machine without Tailscale gets a status, not a notice on every start.
-          set({
-            state: 'not-installed',
-            allow: [],
-            hint: 'Install Tailscale and put its CLI on PATH.',
-          })
-          return
-        }
-        output = (await command(['status', '--json'])).stdout
+      const output = await cliStatus()
+      if (output === undefined) {
+        // On by default, so a machine without Tailscale gets a status, not a notice on every start.
+        set({
+          state: 'not-installed',
+          allow: [],
+          hint: 'Install Tailscale and put its CLI on PATH.',
+        })
+        return
       }
       // Tailscale user IDs can exceed Number.MAX_SAFE_INTEGER; preserve the original numeric token.
       const node = JSON.parse(

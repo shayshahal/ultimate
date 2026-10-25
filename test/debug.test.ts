@@ -4,6 +4,7 @@ import { afterAll, expect, it } from 'vitest'
 import { context } from '../server/harness.ts'
 import { age } from '../extensions/debug/server.ts'
 import { apiSummary } from '../lib/api-files.ts'
+import { slashed } from '../lib/paths.ts'
 import { fauxServer, linkDependencies, removeTemp, temp, until } from './helpers.ts'
 
 const servers: Awaited<ReturnType<typeof fauxServer>>[] = []
@@ -16,8 +17,8 @@ afterAll(async () => {
 const tokens = `
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
 import { defineExtension } from '@earendil-works/pi-durable'
-import { defineApi } from '${resolve('shared/extension-api.ts')}'
-import { defineEvent } from '${resolve('shared/events.ts')}'
+import { defineApi } from '${slashed(resolve('shared/extension-api.ts'))}'
+import { defineEvent } from '${slashed(resolve('shared/events.ts'))}'
 const Beta = defineApi()('beta')
 const Missing = defineApi()('absent')
 const Pinged = defineEvent('beta.pinged')`

@@ -1,6 +1,7 @@
 import { relative } from 'node:path'
 import type { EntryRecord } from '@earendil-works/pi-durable'
 import { isInput } from '../../lib/entries.ts'
+import { slashed } from '../../lib/paths.ts'
 
 const clip = (text: string, size: number) => text.replace(/\s+/g, ' ').trim().slice(0, size)
 function textOf(entry: EntryRecord | undefined) {
@@ -48,8 +49,8 @@ export function phaseState(entries: readonly EntryRecord[], roots: readonly stri
         case 'edit':
         case 'write': {
           const path = typeof args.path === 'string' ? args.path : ''
-          const root = roots.find((candidate) => path.startsWith(candidate + '/'))
-          value = root ? relative(root, path) : path
+          const root = roots.find((candidate) => slashed(path).startsWith(slashed(candidate) + '/'))
+          value = root ? slashed(relative(root, path)) : path
           break
         }
         case 'subagent':

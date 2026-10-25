@@ -1,7 +1,7 @@
 import { chmod, cp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { afterEach, expect, it, vi } from 'vitest'
-import tailscale, { actions } from '../extensions/tailscale/server.ts'
+import tailscale, { actions, tailscaleCommands } from '../extensions/tailscale/server.ts'
 import type { Status } from '../extensions/tailscale/api.ts'
 import type { ExtensionHost } from '../server/extensions.ts'
 import { createAccess } from '../server/request-security.ts'
@@ -373,6 +373,9 @@ it('treats a missing TAILSCALE_COMMAND as not installed, never falling back to a
 it('reports not installed quietly without attempting Serve', async () => {
   const f = await fixture()
   vi.stubEnv('PATH', join(f.home, 'missing'))
+  // Point the installers' locations at nothing too, so this machine's own Tailscale app cannot answer.
+  vi.stubEnv('PROGRAMFILES', join(f.home, 'missing'))
+  vi.stubEnv('PROGRAMFILES(X86)', join(f.home, 'missing'))
   const app = await f.instance()
   expect(await app.status()).toMatchObject({
     state: 'not-installed',
@@ -380,6 +383,25 @@ it('reports not installed quietly without attempting Serve', async () => {
   })
   expect(app.notices).toEqual([])
   expect(await f.invocations()).toEqual([])
+})
+it('tries TAILSCALE_COMMAND, then PATH, then where the installers put the CLI', () => {
+  const programFiles = {
+    PROGRAMFILES: 'C:\\Program Files',
+    'PROGRAMFILES(X86)': 'C:\\Program Files (x86)',
+  }
+  expect(tailscaleCommands({ TAILSCALE_COMMAND: '/opt/tailscale' }, 'win32')).toEqual([
+    '/opt/tailscale',
+  ])
+  expect(tailscaleCommands(programFiles, 'win32')).toEqual([
+    'tailscale',
+    join('C:\\Program Files', 'Tailscale', 'tailscale.exe'),
+    join('C:\\Program Files (x86)', 'Tailscale', 'tailscale.exe'),
+  ])
+  expect(tailscaleCommands({}, 'darwin')).toEqual([
+    'tailscale',
+    '/Applications/Tailscale.app/Contents/MacOS/Tailscale',
+  ])
+  expect(tailscaleCommands({}, 'linux')).toEqual(['tailscale'])
 })
 it('hands ownership to an overlapping successor and does not remove foreign replacements', async () => {
   const f = await fixture()

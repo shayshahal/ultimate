@@ -3,6 +3,7 @@ import { join, resolve } from 'node:path'
 import { afterAll, expect, it } from 'vitest'
 import { fauxServer, removeTemp, temp, until } from './helpers.ts'
 import { extensionApis } from '../server/extension-apis.ts'
+import { slashed } from '../lib/paths.ts'
 import { defineApi } from '../shared/extension-api.ts'
 
 const homes: string[] = []
@@ -14,7 +15,7 @@ afterAll(async () => {
 
 const tokens = `
 import { defineExtension } from '@earendil-works/pi-durable'
-import { defineApi } from '${resolve('shared/extension-api.ts')}'
+import { defineApi } from '${slashed(resolve('shared/extension-api.ts'))}'
 const Echo = defineApi()('test-echo')
 const Back = defineApi()('test-back')`
 // Needs the echo API at setup and holds the handle; implements `test-back` for the cycle.

@@ -19,6 +19,17 @@ async function userCloudSettings(host: Pick<ExtensionHost, 'userHome'>) {
   return cloud && typeof cloud === 'object' && !Array.isArray(cloud) ? cloud : {}
 }
 
+/** This machine's cloud name: `cloud.machine` from the user's settings, else the host name. */
+export async function cloudMachine(
+  host: Pick<ExtensionHost, 'userHome'>,
+  env: NodeJS.ProcessEnv = process.env,
+) {
+  const config = await userCloudSettings(host)
+  return (
+    env.ULTIMATE_CLOUD_MACHINE ?? (typeof config.machine === 'string' ? config.machine : hostname())
+  )
+}
+
 /** Only user settings may select the cloud: a repository must not redirect the user's history. */
 export async function cloudConfig(
   host: Pick<ExtensionHost, 'userHome' | 'notice'>,
@@ -34,8 +45,7 @@ export async function cloudConfig(
     host.notice('Missing ULTIMATE_CLOUD_TOKEN. Add it in the Secrets panel (⌘K → Secrets).')
     return undefined
   }
-  const machine =
-    env.ULTIMATE_CLOUD_MACHINE ?? (typeof config.machine === 'string' ? config.machine : hostname())
+  const machine = await cloudMachine(host, env)
   // A satellite runs the project beside the machine that backs it up; it must never replace that machine's backups.
   return { url, token, machine, satellite: config.satellite === true }
 }

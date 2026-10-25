@@ -10,6 +10,7 @@ import { callTrace } from '../server/trace.ts'
 import type { EventRecord } from '../shared/events.ts'
 import type { ConversationSummary } from '../shared/protocol.ts'
 import { fauxServer, linkDependencies, temp } from './helpers.ts'
+import { slashed } from '../lib/paths.ts'
 
 const servers: Awaited<ReturnType<typeof fauxServer>>[] = []
 afterAll(async () => {
@@ -534,7 +535,7 @@ it('returns a trace tree with its events on a running server', async () => {
   await writeFile(
     join(root, 'extensions/alpha/server.ts'),
     `import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
-import { defineEvent } from '${resolve('shared/events.ts')}'
+import { defineEvent } from '${slashed(resolve('shared/events.ts'))}'
 const Pinged = defineEvent('alpha.pinged')
 export default { name: 'alpha' }
 export const actions = {

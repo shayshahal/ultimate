@@ -11,6 +11,7 @@ import { classify, guardToolArguments } from '../server/tool-arguments.ts'
 import { callTrace, summary, traceContext } from '../server/trace.ts'
 import type { Call, CallTree } from '../server/trace.ts'
 import { fauxServer, linkDependencies, temp, until } from './helpers.ts'
+import { slashed } from '../lib/paths.ts'
 
 const servers: Awaited<ReturnType<typeof fauxServer>>[] = []
 afterAll(async () => {
@@ -20,8 +21,8 @@ afterAll(async () => {
 const tokens = `
 import { BACKGROUND_CONTEXT } from '@earendil-works/chord/context'
 import { defineExtension, defineTool } from '@earendil-works/pi-durable'
-import { defineApi } from '${resolve('shared/extension-api.ts')}'
-import { defineEvent } from '${resolve('shared/events.ts')}'
+import { defineApi } from '${slashed(resolve('shared/extension-api.ts'))}'
+import { defineEvent } from '${slashed(resolve('shared/events.ts'))}'
 const Beta = defineApi()('beta')
 const Delta = defineApi()('delta')
 const Worked = defineEvent('beta.worked')`
