@@ -307,6 +307,7 @@ export async function runGroup(
   options: {
     cwd: string
     pidFile: string
+    env?: NodeJS.ProcessEnv
     signal?: AbortSignal
     grace?: number
     windowsVerbatimArguments?: boolean

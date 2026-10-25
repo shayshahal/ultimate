@@ -10,14 +10,17 @@ it.runIf(process.platform === 'win32')(
   async () => {
     const directory = await temp('ultimate-lander-watchdog-')
     try {
+      const pids = join(directory, 'pids')
+      const tmp = join(directory, 'tmp')
+      expect(await runLanderCheck(directory, 'echo "one" && echo two', context, pids, tmp)).toEqual(
+        { summary: 'two' },
+      )
+
       const childFile = join(directory, 'child')
       // node stays alive while the child it started runs: a tree two processes deep, silent once its child is recorded.
       const script = `require('fs').writeFileSync('${childFile.replaceAll('\\', '/')}', String(require('child_process').spawn(process.execPath, ['-e', 'setTimeout(() => {}, 20000)']).pid)); console.log('ready')`
-      const pids = join(directory, 'pids')
-      const ok = await runLanderCheck(directory, 'echo "one" && echo two', context, pids)
-      expect(ok).toEqual({ summary: 'two' })
       const command = `echo started && "${process.execPath}" -e "${script}"`
-      const result = await runLanderCheck(directory, command, context, pids, {
+      const result = await runLanderCheck(directory, command, context, pids, tmp, {
         stall: 2,
         total: 15,
       })
@@ -41,11 +44,13 @@ it.skipIf(process.platform === 'win32')(
         const childFile = join(directory, 'child')
         const command = `echo $$ > '${pidFile}'; sleep 10 & echo $! > '${childFile}'; ${printing ? 'while true; do echo progress; sleep 0.02; done' : 'wait'}`
         const pids = join(directory, 'pids')
-        const result = await runLanderCheck(directory, command, context, pids, {
+        const tmp = join(directory, 'tmp')
+        const result = await runLanderCheck(directory, command, context, pids, tmp, {
           stall: 0.2,
           total: 0.5,
         })
         expect(await readdir(pids)).toEqual([])
+        expect(await readdir(tmp)).toEqual([])
         expect(result.failure).toContain(printing ? 'Timed out after' : 'Stalled: no output for')
         expect(result.failure?.includes('progress')).toBe(printing)
         const pid = Number(await readFile(pidFile, 'utf8'))

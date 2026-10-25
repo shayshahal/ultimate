@@ -2,22 +2,38 @@ Inline setup choices, the first-run prerequisites, and the Extensions panel that
 
 ## First run
 
-The first run has only **Get ready**: connect a provider and choose an available model. Continue waits for both, starts onboarding with @ultimate through `onDone`, then records `firstRunDone`;
+The first run has only **Get ready**: connect a provider and choose an available model. The model row recommends a
+1M+ context window for @ultimate, and names the chosen model's window when it is smaller. ⌘K **Get ready…** opens it
+again whatever the recorded state, e.g. on a preview, which shares the user's `~/.ultimate/onboarding.json`; its
+Continue starts onboarding once per root, as above. Continue waits for both, starts onboarding with @ultimate through `onDone`, then records `firstRunDone`;
 there is no second page. Escape or the close button records completion without changing settings. Closing returns
 focus to the composer. An automated browser (`navigator.webdriver`) does not get this dialog.
 
 ## Onboarding with @ultimate
 
-Continue on Get ready, or **Set up with @ultimate** on an empty root's Start here card, calls the user-only action
+Continue on Get ready, or **Set up with @ultimate** on the Start here card, calls the user-only action
 `start { root?, instructions? }` and opens @ultimate's standing conversation. An omitted root resolves to the shown
 conversation's tree, or conversation 1. The optional focus is passed verbatim as instructions. The action submits a
 quiet `onboarding.start` input with `{ root, instructions?, facts }`: project name/path, first-run state, undecided
 project setup, Git isolation reason (if any), root id and emptiness. Model text names the event, lists those facts
 and preserves the instructions. Request id `onboarding:<root>` ensures one input per root; repeated calls return
-`{ id }` without sending again. The root conversation's `onboarding.starts` document maps roots to that standing id
-so Start here can show **@ultimate is setting up this project · open** across reloads.
+`{ id }` without sending again: the root conversation's `onboarding.starts` document maps roots to that standing id.
 
-@ultimate greets, shows only applicable setup cards one at a time and waits for each choice, then reads the project
+Start here is a card above @ultimate's composer (`survey.tsx`, through the SDK's `composer` renderer) until
+onboarding has run for the project's root: `onboarding.starts` names the root, or the root carries memories (a new
+chapter's root, set up long ago; `onboarded.ts`). Its one button, **Set up with @ultimate**, calls `start { root }`,
+like Get ready's Continue; once that records the root, the card is gone for good. The History page (the root) takes
+no input.
+
+@ultimate greets and first walks the user through how Ultimate works with the `how-ultimate-works` skill
+(`skills/how-ultimate-works/SKILL.md`): five short beats, each a message with one question card and a Skip the rest
+option, ending with what the project is about and what to do first. That answer is the user's instructions for setup.
+The input carries @ultimate's model and context window so the walkthrough can recommend a 1M+ model.
+
+**Walk me through Ultimate** (⌘K) reruns only the walkthrough: the user-only `walkthrough` action submits a
+`walkthrough.start` input to @ultimate, every time, and opens its conversation.
+
+Then @ultimate shows only applicable setup cards one at a time and waits for each choice, then reads the project
 with the user able to steer. It writes the root's first memories with `remember` (the user's instructions verbatim among them), suggests at most three useful
 project-specific agents, extensions or settings, and builds only what the user chooses. The first feature becomes a
 coordinator through `branch`. Roots stay read-only while @ultimate handles setup.
@@ -31,7 +47,7 @@ the agent should wait for an `onboarding.choice` input before continuing.
 The tool renderer shows a quiet, transcript-width card:
 
 - **Extensions:** recommended extensions as checkboxes, initially checked unless the user's settings disable them.
-  The default-off built-ins (`cloud`, `parallel`, `tailscale`, `update`, `health`, `classify`, `phase`, `sounds`;
+  The default-off built-ins (`cloud`, `parallel`, `tailscale`, `health`, `classify`, `phase`, `sounds`;
   see [settings](../../docs/settings.md)) start unchecked unless the user's settings enable them, each with one line
   on what it needs (a key, a service, a Worker).
   Core-tier extensions (`ExtensionInfo.core`, such as `subagents`, `messages`, `lineage`, `onboarding` and `documents`)
@@ -62,8 +78,7 @@ as **Chosen: …**, never the current settings or a local success flag. A quiet 
 The status line keeps **project setup** while the project decision is open and **set up git** while isolation is
 unavailable. Clicking calls `help { card: 'project' | 'git' }`, which submits "Help me decide whether to use this
 project's setup." or "Help me set up git for this folder." directly in @ultimate's standing conversation and returns
-its id. The browser opens that conversation on the Agent surface. First-run Continue and Start here's start/open links also select the Agent surface. While onboarding is
-in progress, Start here shows only the open link, without the focus textarea or keyboard hint.
+its id. The browser opens that conversation on the Agent surface. First-run Continue also selects the Agent surface.
 The Extensions panel's About this setup routes there too rather than opening a setup dialog.
 The Git status is read again whenever the shown conversation finishes a run, including an agent's first Git commit.
 
@@ -84,6 +99,7 @@ This default-on built-in exports browser actions. Settings choices and completio
 cannot apply them through codemode `ultimate.action`.
 
 - `start { root?, instructions? }`: starts the flow above once per root, returning `{ id }`; user-only.
+- `walkthrough`: has @ultimate run the walkthrough again, without setup, returning `{ id }`; user-only.
 - `help { card: 'project' | 'git' }`: asks @ultimate for setup help through a direct input, returning `{ id }`; user-only.
 - `status`: first-run state; project configuration, decision and README; the user's enable/disable lists; and `adds`,
   the project's agents, skills, extension folders, replacements and declared settings, inspected even while undecided.

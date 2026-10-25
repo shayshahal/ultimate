@@ -26,7 +26,7 @@ An optional `composer` renderer receives `{ core, dock? }` for the shown convers
 narrow side region). Render `core` to preserve the existing composer, optionally wrapping it. Facets compose in
 discovery order: each receives the previous rendering as `core`, behind its own extension boundary with that rendering
 as fallback. These renderers can use `useTranscript()` for the shown conversation's current entries.
-Lineage uses this to show a root's read-only context footer, or an empty root's Start here card, instead of a composer.
+Lineage uses this to show a root's read-only History banner, with the way back to @ultimate, instead of a composer.
 To send what the composer submits elsewhere, wrap `core` in `<ComposerRedirect to={{ placeholder, send }}>` (from `@/sdk`):
 while `to` is set, Enter and the send button call `send(text)` instead of submitting, with the same draft, error and
 sending states (side-chat forks @ultimate this way). Only the shown conversation's composer takes typing shortcuts
@@ -103,6 +103,8 @@ Server factories receive exactly these `ExtensionHost` fields (import its type o
 - `notice(message)`: publish a warning notice and retain it in this facet's system diagnostics for later clients, until unload/reload.
 - `resource(key, create)`, `onOpen(callback)`, `onRelease(callback)`, `onClose(cleanup)`: shared reload-stable resources, async work each
   time the harness opens (at once if it is open; the server serves once it settles), async work each time before it closes while the process stays (a core swap; drop commit subscriptions there), and async cleanup. Facet-level callbacks are removed on unload/reload, with cleanup run before the replacement opens. Callbacks registered inside a shared resource's creation belong to that reload-stable resource and survive until server shutdown.
+  Keep only process state in a resource (running children, in-flight promises, flags); never capture document or task
+  tokens or facet functions in it, since they go stale on reload. Build those on each install around the shared state.
 
 ## Extension APIs
 
@@ -292,7 +294,7 @@ No restart, no reload.
 
 ## Contributions
 
-`defineWebExtension({ slots, panels, surfaces, tools, toolLines, entries, link, messageActions, messageDetails, answerLabels, compact, intro, documents, commands })`; every key is optional. Extensions load
+`defineWebExtension({ slots, panels, surfaces, tools, toolLines, entries, link, messageActions, messageDetails, answerLabels, userBubble, compact, intro, documents, commands })`; every key is optional. Extensions load
 in parallel, installing independently; contributions follow discovery order: built-in → user → project, then folder name within each source. Give a slot item `{ component, order }` to move it (default order 0, lower first).
 
 ### Slots
@@ -313,6 +315,7 @@ title bar the host shows above every surface.
 | `statusline.right`     | Bottom status line, right (`<StatusLine />`); on a phone only `phone: true` items stay, the rest go behind ⋯ |
 | `composer.toolbar`     | Left of the composer's footer; a size container, condense with `@max-md:` (`<Conversation />`)               |
 | `composer.status`      | Line under the composer; conversation-specific, monospace, one line (`<Conversation />`)                     |
+| `composer.actions`     | Composer footer, beside Send; input helpers that write into the draft with `insertIntoComposer`              |
 | `conversation.overlay` | Over the transcript and the composer (`<Conversation />`); position it `absolute inset-0`                    |
 | `transcript.start`     | Above a transcript's first row once its whole history is loaded; `useTranscript()` inside                    |
 | `overlay`              | Always mounted at the root, above every surface: dialogs, toasts, global effects                             |
@@ -426,6 +429,10 @@ shows each message's context and cost there.
 rendered in discovery and contribution order, each behind an extension boundary. Return `null` when the entry has
 no relevant label. Keep labels brief and muted; the header wraps at narrow widths. Messages uses it to show where an
 answer was sent, or that a one-way message's answer was not sent.
+
+`userBubble` contributes overlays on the user's own bubble: components receiving `{ entry }`, rendered after the
+bubble inside a positioned box exactly its size, so an `absolute inset-0` element decorates it. Return `null` when
+there is nothing to show. Recall uses it for the light running around a message's border while it checks it.
 
 `toolLines` maps tool names to components receiving `{ call: ToolCallView }` that render the call as one short line
 of plain text. A folded "worked · N steps" row lists its newest calls this way under its header (a status icon and the
