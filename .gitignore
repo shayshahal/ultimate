@@ -6,5 +6,6 @@ dist/
 *.tsbuildinfo
 .vitest/
 .dev.vars
+.pi/settings.json
 .wrangler/
 cloud/wrangler.deploy.json
