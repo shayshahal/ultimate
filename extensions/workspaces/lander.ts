@@ -19,7 +19,7 @@ import type {
   Tx,
 } from '@earendil-works/pi-durable'
 import { git } from '../../lib/git.ts'
-import { runGroup, sweepPidFiles } from '../../lib/process-group.ts'
+import { runGroup, shellCommand, sweepPidFiles } from '../../lib/process-group.ts'
 import type { ExtensionHost } from '../../server/extensions.ts'
 import { definitionAgent, discoverAgents } from '../../lib/agents.ts'
 import { CheckRan, Handoff, SubmissionLanded } from './api.ts'
@@ -183,7 +183,7 @@ export const sweepChecks = (home: string) =>
   sweepPidFiles(checkPids(home), (name) => name.startsWith(`${process.pid}-`))
 
 /**
- * Run `command` with bash in its own process group, recorded in `pids` while it runs. The watchdog and task
+ * Run `command` with bash (cmd.exe on Windows) in its own process group, recorded in `pids` while it runs. The watchdog and task
  * cancellation both stop the whole group: TERM, then KILL after a short grace.
  */
 export async function runLanderCheck(
@@ -234,8 +234,10 @@ export async function runLanderCheck(
   try {
     let exitCode: number
     try {
-      exitCode = await runGroup('/bin/bash', ['-c', command], {
+      const { program, args, windowsVerbatimArguments } = shellCommand(command)
+      exitCode = await runGroup(program, args, {
         cwd: path,
+        windowsVerbatimArguments,
         pidFile: join(pids, `${process.pid}-${randomUUID()}.pid`),
         signal,
         grace: 2000,

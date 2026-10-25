@@ -2,14 +2,17 @@ import { tmpdir } from 'node:os'
 import { withAbortSignal } from '@earendil-works/chord/context'
 import { afterEach, expect, it, vi } from 'vitest'
 import { context } from '../server/harness.ts'
-import { runGroup } from '../lib/process-group.ts'
+import { runGroup, shellCommand } from '../lib/process-group.ts'
 import {
   landerSettings,
   limitsFor,
   runLanderCheck as run,
 } from '../extensions/workspaces/lander.ts'
 
-vi.mock('../lib/process-group.ts', () => ({ runGroup: vi.fn<typeof runGroup>() }))
+vi.mock('../lib/process-group.ts', async (actual) => ({
+  ...(await actual<typeof import('../lib/process-group.ts')>()),
+  runGroup: vi.fn<typeof runGroup>(),
+}))
 const runLanderCheck = (
   path: string,
   command: string,
@@ -137,6 +140,30 @@ it('preserves task cancellation instead of reporting a watchdog failure', async 
   controller.abort(new Error('task cancelled'))
   await expect(ran).rejects.toThrow('task cancelled')
   expect(vi.getTimerCount()).toBe(0)
+})
+
+it('runs a check through bash, or through cmd.exe with the command quoted whole on Windows', async () => {
+  const command = 'pnpm check && echo "done"'
+  expect(shellCommand(command, 'linux', {})).toEqual({
+    program: '/bin/bash',
+    args: ['-c', command],
+    windowsVerbatimArguments: false,
+  })
+  const cmd = { program: 'cmd.exe', args: ['/d', '/s', '/c', `"${command}"`] }
+  expect(shellCommand(command, 'win32', {})).toEqual({ ...cmd, windowsVerbatimArguments: true })
+  expect(
+    shellCommand(command, 'win32', { ComSpec: 'C:\\Windows\\system32\\cmd.exe' }).program,
+  ).toBe('C:\\Windows\\system32\\cmd.exe')
+
+  vi.mocked(runGroup).mockResolvedValue(0)
+  await runLanderCheck('.', command, context)
+  const [program, args, options] = vi.mocked(runGroup).mock.calls[0]
+  const expected = shellCommand(command)
+  expect({ program, args, verbatim: options.windowsVerbatimArguments }).toEqual({
+    program: expected.program,
+    args: expected.args,
+    verbatim: expected.windowsVerbatimArguments,
+  })
 })
 
 it('keeps successful summaries and clears both timers', async () => {
