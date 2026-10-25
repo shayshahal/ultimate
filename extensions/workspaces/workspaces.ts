@@ -144,11 +144,28 @@ async function held(
       : 0,
   }
 }
+/**
+ * Whether `git worktree list --porcelain` output lists this checkout. Git prints every worktree path with forward
+ * slashes, while the recorded path uses the platform's separator (backslashes on Windows) and may differ in case.
+ */
+export function listsWorktree(
+  listed: string,
+  path: string,
+  platform: string = process.platform,
+): boolean {
+  const comparable = (value: string) =>
+    platform === 'win32' ? value.replaceAll('\\', '/').toLowerCase() : value
+  const entry = `worktree ${comparable(path)}`
+  return listed
+    .split('\n\n')
+    .some((block) => block.split('\n').some((line) => comparable(line) === entry))
+}
 /** Whether the source lists the path as a worktree; throws when the source cannot tell, so callers never guess. */
 async function listedBySource(workspace: WorkspaceIndex['items'][string]) {
-  return (await git(workspace.source, 'worktree', 'list', '--porcelain'))
-    .split('\n\n')
-    .some((entry) => entry.split('\n').includes(`worktree ${workspace.path}`))
+  return listsWorktree(
+    await git(workspace.source, 'worktree', 'list', '--porcelain'),
+    workspace.path,
+  )
 }
 async function registeredCheckout(workspace: WorkspaceIndex['items'][string]) {
   if (!(await onDisk(workspace.path))) return false
@@ -156,9 +173,7 @@ async function registeredCheckout(workspace: WorkspaceIndex['items'][string]) {
     // A folder Git cannot inspect is not a usable registered checkout.
     () => '',
   )
-  return listed
-    .split('\n\n')
-    .some((entry) => entry.split('\n').includes(`worktree ${workspace.path}`))
+  return listsWorktree(listed, workspace.path)
 }
 export function workspaces(host: Host) {
   const queues = host.resource('workspaces.land', () => new Map<string, Promise<unknown>>())
