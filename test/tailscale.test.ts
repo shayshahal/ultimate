@@ -1,5 +1,6 @@
-import { chmod, cp, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { cp, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
 import tailscale, { actions, tailscaleCommands } from '../extensions/tailscale/server.ts'
 import type { Status } from '../extensions/tailscale/api.ts'
@@ -22,9 +23,34 @@ vi.mock('node:fs/promises', async (importOriginal) => {
   }
 })
 
+/**
+ * The CLI boundary this file stubs, so the extension's `exec` reaches a stub module instead of a program: Windows cannot
+ * execute a shell script, and no test may reach an installed Tailscale. `command` is the CLI a fixture registered and
+ * `run` answers one call; a fixture that installs no CLI leaves `run` unset, which the boundary answers with ENOENT.
+ */
+const stub = vi.hoisted(() => ({
+  command: '',
+  run: undefined as undefined | ((args: string[]) => Promise<{ stdout: string; stderr: string }>),
+}))
+vi.mock('../lib/exec.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../lib/exec.ts')>()
+  return {
+    ...actual,
+    exec: async (file: string, args: readonly string[], options?: object) => {
+      if (!stub.command || file !== stub.command)
+        return actual.exec(file, args as string[], options)
+      const run = stub.run
+      if (!run) throw Object.assign(new Error(`ENOENT: ${file}`), { code: 'ENOENT', stderr: '' })
+      return run(args as string[])
+    },
+  }
+})
+
 const closes: (() => Promise<void>)[] = []
 afterEach(async () => {
   for (const close of closes.splice(0)) await close()
+  stub.command = ''
+  stub.run = undefined
   vi.unstubAllEnvs()
   vi.restoreAllMocks()
 })
@@ -34,39 +60,59 @@ const node = {
   User: { '7': { LoginName: 'owner@example.com' } },
   CertDomains: ['rog.example.ts.net'],
 }
+/**
+ * The stub CLI as a module: the answers the CLI gives, in this process, and runnable under node by the copied repository
+ * below, which loads its own modules. No platform has to execute it directly.
+ */
+const stubModule = (configPath: string, logPath: string) => `import fs from 'node:fs'
+import { pathToFileURL } from 'node:url'
+
+export async function run(args) {
+  fs.appendFileSync(${JSON.stringify(logPath)}, JSON.stringify(args) + '\\n')
+  const config = JSON.parse(fs.readFileSync(${JSON.stringify(configPath)}, 'utf8'))
+  if (config.error && (!config.errorOn || args.join(' ') === config.errorOn))
+    throw Object.assign(new Error(config.error), { code: 1, stderr: config.error })
+  if (args[0] === 'status') return { stdout: config.statusJson ?? JSON.stringify(config.node), stderr: '' }
+  if (args.join(' ') === 'serve status --json') return { stdout: JSON.stringify(config.serve), stderr: '' }
+  if (args[0] === 'serve') {
+    const port = args.find((arg) => arg.startsWith('--https=')).split('=')[1]
+    const authority = 'rog.example.ts.net:' + port
+    config.serve.Web ??= {}
+    config.serve.TCP ??= {}
+    if (args.includes('off')) {
+      delete config.serve.Web[authority]
+      delete config.serve.TCP[port]
+    } else {
+      config.serve.Web[authority] = { Handlers: { '/': { Proxy: args.at(-1) } } }
+      config.serve.TCP[port] = { HTTPS: true }
+    }
+    fs.writeFileSync(${JSON.stringify(configPath)}, JSON.stringify(config))
+    return { stdout: '', stderr: '' }
+  }
+  return { stdout: '', stderr: '' }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    process.stdout.write((await run(process.argv.slice(2))).stdout)
+  } catch (error) {
+    process.stderr.write(String(error.stderr ?? error.message))
+    process.exit(1)
+  }
+}
+`
 async function fixture(scenario: Record<string, unknown> = {}) {
   const home = await temp()
   await mkdir(join(home, '.ultimate'))
   const config = join(home, 'config.json')
   const log = join(home, 'argv.jsonl')
   await writeFile(config, JSON.stringify({ node, serve: {}, ...scenario }))
-  const script = join(home, 'tailscale')
-  await writeFile(
-    script,
-    `#!${process.execPath}
-const fs = require('node:fs');
-const args = process.argv.slice(2);
-fs.appendFileSync(${JSON.stringify(log)}, JSON.stringify(args) + '\\n');
-const config = JSON.parse(fs.readFileSync(${JSON.stringify(config)}, 'utf8'));
-if (config.error && (!config.errorOn || args.join(' ') === config.errorOn)) { console.error(config.error); process.exit(1); }
-if (args[0] === 'status') console.log(config.statusJson ?? JSON.stringify(config.node));
-else if (args.join(' ') === 'serve status --json') console.log(JSON.stringify(config.serve));
-else if (args[0] === 'serve') {
-  const port = args.find(arg => arg.startsWith('--https=')).split('=')[1];
-  const authority = 'rog.example.ts.net:' + port;
-  config.serve.Web ??= {}; config.serve.TCP ??= {};
-  if (args.includes('off')) { delete config.serve.Web[authority]; delete config.serve.TCP[port]; }
-  else { config.serve.Web[authority] = { Handlers: { '/': { Proxy: args.at(-1) } } }; config.serve.TCP[port] = { HTTPS: true }; }
-  fs.writeFileSync(${JSON.stringify(config)}, JSON.stringify(config));
-}
-`,
-  )
-  await chmod(script, 0o755)
-  // This file runs its own stub CLI, named directly and put on PATH, instead of the missing one test/setup.ts names for
-  // every other server. Naming it keeps a platform that cannot run the shebang script (Windows) from finding another
-  // Tailscale install and publishing on the real tailnet.
+  const script = join(home, 'tailscale-stub.mjs')
+  await writeFile(script, stubModule(config, log))
+  // The extension runs the named CLI, which this file's `exec` boundary answers with the module's own `run`.
+  stub.command = script
+  stub.run = (await import(pathToFileURL(script).href)).run
   vi.stubEnv('TAILSCALE_COMMAND', script)
-  vi.stubEnv('PATH', home)
   const invocations = async () => {
     try {
       return (await readFile(log, 'utf8'))
@@ -122,7 +168,14 @@ else if (args[0] === 'serve') {
         (await actions.status(null, { host } as Parameters<typeof actions.status>[1])) as Status,
     }
   }
-  return { home, config, invocations, instance }
+  return {
+    home,
+    config,
+    invocations,
+    instance,
+    /** A machine with no CLI: the named one is not there, and nothing installed elsewhere is tried. */
+    noCli: () => (stub.run = undefined),
+  }
 }
 
 async function repo(home: string) {
@@ -136,6 +189,17 @@ async function repo(home: string) {
   await cp(resolve('server/lock.ts'), join(root, 'server/lock.ts'))
   await cp(resolve('server/project.ts'), join(root, 'server/project.ts'))
   await linkDependencies(root)
+  // This copy loads its own modules through Vite, out of reach of the mock above: it runs the same stub module under
+  // node, which every platform has, so no test executes a shell script or an installed CLI.
+  await writeFile(
+    join(root, 'lib/exec.ts'),
+    `import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
+const run = promisify(execFile)
+export const exec = (file: string, args: string[], options?: object) =>
+  file === process.env.TAILSCALE_COMMAND ? run(process.execPath, [file, ...args], options) : run(file, args, options)
+`,
+  )
   await writeFile(
     join(root, 'vite.config.ts'),
     "export default { root: 'web', optimizeDeps: { noDiscovery: true } }",
@@ -380,10 +444,8 @@ it('treats a missing TAILSCALE_COMMAND as not installed, never falling back to a
 })
 it('reports not installed quietly without attempting Serve', async () => {
   const f = await fixture()
-  vi.stubEnv('PATH', join(f.home, 'missing'))
-  // Point the installers' locations at nothing too, so this machine's own Tailscale app cannot answer.
-  vi.stubEnv('PROGRAMFILES', join(f.home, 'missing'))
-  vi.stubEnv('PROGRAMFILES(X86)', join(f.home, 'missing'))
+  // The named CLI is not there, and it stays authoritative: nothing installed elsewhere is tried.
+  f.noCli()
   const app = await f.instance()
   expect(await app.status()).toMatchObject({
     state: 'not-installed',
