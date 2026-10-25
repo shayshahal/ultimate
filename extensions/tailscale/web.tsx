@@ -18,6 +18,7 @@ import {
   errorMessage,
   events,
   useAction,
+  useCopy,
   useEvent,
   useSystem,
 } from '@/sdk'
@@ -63,19 +64,6 @@ function useStatus() {
     void refetch()
   }, [signature, refetch])
   return status
-}
-
-function useCopy() {
-  const [copied, setCopied] = useState(false)
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  useEffect(() => () => clearTimeout(timer.current), [])
-  const copy = (value: string) =>
-    void navigator.clipboard.writeText(value).then(() => {
-      setCopied(true)
-      clearTimeout(timer.current)
-      timer.current = setTimeout(() => setCopied(false), 1200)
-    })
-  return { copied, copy }
 }
 
 /** A shell command to copy, as a code chip. */
@@ -210,7 +198,7 @@ function Trouble({ state, hint }: { state: Problem; hint?: string }) {
   )
 }
 
-/** Runs the start again, as after fixing what a problem names, then reads the status it reached. */
+/** Runs the start again, as after fixing what a problem names or to restore a lost mapping, then reads the status. */
 function CheckAgain({ onChecked }: { onChecked: () => Promise<unknown> }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
@@ -284,7 +272,8 @@ function Details({ status }: { status: ReturnType<typeof useStatus> }) {
       )}
       {state === 'ready' && data?.url && <Ready allow={data.allow} url={data.url} />}
       {state && state in problems && <Trouble hint={data?.hint} state={state as Problem} />}
-      {state && state in problems && <CheckAgain onChecked={refetch} />}
+      {/* Ready too: it serves the mapping again if something removed it behind this server's back. */}
+      {(state === 'ready' || (state && state in problems)) && <CheckAgain onChecked={refetch} />}
     </section>
   )
 }
