@@ -1,10 +1,10 @@
-import { mkdir, utimes, writeFile } from 'node:fs/promises'
-import { dirname, join } from 'node:path'
+import { mkdir, readFile, utimes, writeFile } from 'node:fs/promises'
+import { delimiter, dirname, join } from 'node:path'
 import { beforeEach, expect, it } from 'vitest'
 import { git } from '../../lib/git.ts'
 import { fastForward, Refusal } from '../../lib/fast-forward.ts'
 import { cloneState, fetchIfDue, layersOf, withLock } from '../../extensions/update/clone.ts'
-import { gitIn, installOwed } from '../../extensions/update/server.ts'
+import { gitIn, installOwed, installPackages } from '../../extensions/update/server.ts'
 import { temp } from '../helpers.ts'
 
 let upstream: string
@@ -168,6 +168,33 @@ it('admits one holder of the clone lock among simultaneous ones, and recovers a 
 it('owes an install while the lockfile differs from the installed one', async () => {
   expect(await installOwed(clone)).toBe(true)
   await mkdir(join(clone, 'node_modules/.pnpm'), { recursive: true })
-  await writeFile(join(clone, 'node_modules/.pnpm/lock.yaml'), 'lockfileVersion: 9\n')
+  await writeFile(
+    join(clone, 'node_modules/.pnpm/lock.yaml'),
+    await readFile(join(clone, 'pnpm-lock.yaml')),
+  )
   expect(await installOwed(clone)).toBe(false)
+})
+
+it('runs pnpm from PATH as Windows ships it, as a .cmd shim only a shell can start', async () => {
+  // The Windows shim reproduces execFile('pnpm') failing with ENOENT. No real packages or network needed.
+  const bin = await temp('ultimate-update-bin-')
+  await writeFile(
+    join(bin, process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'),
+    process.platform === 'win32'
+      ? '@echo off\r\necho %*> pnpm-ran.txt\r\nmkdir node_modules\\.pnpm\r\ncopy /y pnpm-lock.yaml node_modules\\.pnpm\\lock.yaml\r\n'
+      : '#!/bin/sh\necho "$*" > pnpm-ran.txt\nmkdir -p node_modules/.pnpm\ncp pnpm-lock.yaml node_modules/.pnpm/lock.yaml\n',
+    { mode: 0o755 },
+  )
+  const path = process.env.PATH
+  process.env.PATH = `${bin}${delimiter}${path}`
+  try {
+    expect(await installPackages(clone)).toEqual({ install: 'done' })
+    expect(await installOwed(clone)).toBe(false)
+    expect(await installPackages(clone)).toEqual({ install: 'skipped' })
+  } finally {
+    process.env.PATH = path
+  }
+  expect((await readFile(join(clone, 'pnpm-ran.txt'), 'utf8')).trim()).toBe(
+    'install --frozen-lockfile',
+  )
 })

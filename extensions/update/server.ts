@@ -11,6 +11,7 @@ import { compareUrl } from '../../lib/compare.ts'
 import { exec } from '../../lib/exec.ts'
 import { fastForward, Refusal } from '../../lib/fast-forward.ts'
 import type { Git } from '../../lib/fast-forward.ts'
+import { shellCommand } from '../../lib/process-group.ts'
 import { githubRepo } from '../../lib/project-identity.ts'
 import { ConversationsApi } from '../conversations/api.ts'
 import { SubagentsApi } from '../subagents/api.ts'
@@ -64,13 +65,19 @@ const installedSince = (root: string, startedAt: number) =>
     () => false,
   )
 
-/** Install the lockfile's packages when they differ from the installed ones; the install's last lines when it fails. */
-async function installPackages(
+/**
+ * Install the lockfile's packages when they differ from the installed ones; the install's last lines when it fails.
+ * Through the platform shell (`shellCommand`): on Windows `pnpm` is a `.cmd` shim, which only a shell can start.
+ */
+export async function installPackages(
   root: string,
 ): Promise<{ install: 'done' | 'failed' | 'skipped'; installError?: string }> {
   if (!(await installOwed(root))) return { install: 'skipped' }
   try {
-    await exec('pnpm', ['install', '--frozen-lockfile'], { cwd: root, timeout: 10 * 60_000 })
+    const { program, args, windowsVerbatimArguments } = shellCommand(
+      'pnpm install --frozen-lockfile',
+    )
+    await exec(program, args, { cwd: root, timeout: 10 * 60_000, windowsVerbatimArguments })
     return { install: 'done' }
   } catch (error) {
     return { install: 'failed', installError: tail(error) }
