@@ -11,13 +11,15 @@ A project is a forest of conversation trees, like commit histories.
 - **Roots** run no turns. Each keeps a project memory (decisions, facts, lessons by slug); a branch starts from the
   root's memory index and recent landings. The root's read-only tally stays the browsable project context: branch
   intents, latest conversation abstracts and landings with divergence and `#conversation/entry` breadcrumbs. The UI
-  calls a tally **context**; code, tools and model text call it "tally". The footer shows the memory's estimated tokens (what a branch starts from) and **Talk to @ultimate**; the sidebar
-  shows each root heading its tree with its last three events (landings, notes, branches, compactions).
-  Start a project with @ultimate: Continue on Get ready or **Set up with @ultimate** on Start here. It handles setup
-  cards, reads the project and writes its first memories with `remember`; optional focus becomes instructions,
-  kept verbatim as a memory. The tally then builds up from branches and landings. @ultimate maintains memory with
-  `remember` and the memory review (`extensions/lineage/README.md`); the user can compact a tally from its footer
-  or ⌘K. A project has one root: independent work goes into branches.
+  calls a tally **context** and shows it as the read-only **History** page, whose only control is **Back to
+  @ultimate**; the sidebar's Memory row shows the memory's estimated tokens (what a branch starts from) and opens the
+  Memory panel, and each root heads its tree with its last three events (landings, notes, branches, compactions).
+  Start a project with @ultimate: Continue on Get ready, or **Set up with @ultimate** on the Start here card that
+  @ultimate's conversation shows until onboarding has run. It walks the user through Ultimate, handles setup
+  cards, reads the project and writes its first memories with `remember`; the user's answer about the project
+  becomes instructions, kept verbatim as a memory. The tally then builds up from branches and landings. @ultimate maintains memory with
+  `remember` and the memory review (`extensions/lineage/README.md`); the user can compact a tally with ⌘K
+  Compact while it is shown. A project has one root: independent work goes into branches.
   Roots and standing agents are never concluded or cleared, only compacted.
 - **A branch** is a feature, a fix, an experiment. @ultimate picks a root by reading its tally, then starts a
   coordinator branch that starts from its memory brief (or, without memories, its tally) before its prompt. A branch is never a subagent.
@@ -69,6 +71,7 @@ New UI is a new extension folder, not a change to `web/`: follow the `write-exte
 
 ## Developer reference — read when needed
 
+- [Architecture diagrams](docs/architecture/index.html): five pictures of how the browser, server, Pi Durable, extensions, events and agents fit together.
 - [Running the server](docs/running.md): before starting, debugging or testing a server or core swap.
 - [Worktrees and integration](docs/worktrees.md): before previewing an isolate, landing or recovering a rejected push.
 - [Discovery and settings](docs/settings.md): before changing configuration, trust, resources or `summaryModel` (titles, summaries, reply summaries and tree abstracts).
@@ -113,5 +116,7 @@ invalid states: data loss, security, impossible states. Lint enforces only what 
 A swallowed error needs a reason comment explaining why ignoring it is correct; `ultimate/no-silent-catch` enforces this for empty catch blocks and empty or `undefined`-returning `.catch` handlers.
 
 Reject slop and jargon: keep code and explanations direct, minimal, and grounded in evidence. No backward-compatibility
-shims or speculative fallbacks; move forward and update callers. Tests must exercise meaningful behaviour and failure
-cases, not inflate coverage or merely restate the implementation.
+shims or speculative fallbacks; move forward and update callers. Commit tests for a feature's core path and one
+regression test per bug that actually happened; they exercise behaviour and failure cases, never restate the
+implementation. Prove edge cases once instead (a throwaway test or script you run and delete, an action call, a
+preview check) and show the command and its output in the report; one-off migrations and retired shapes get no test.

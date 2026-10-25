@@ -30,6 +30,7 @@
     "extensions/dream/types.ts",
     "extensions/lineage/types.ts",
     "extensions/phase/types.ts",
+    "extensions/recall/types.ts",
     "extensions/conversations/summary-model-ref.ts",
     "extensions/models/switches.ts",
     "extensions/context/breakdown.ts",
@@ -44,6 +45,8 @@
     "extensions/pause/parked.ts",
     "extensions/sidebar/work.ts",
     "extensions/sidebar/landings.ts",
+    "extensions/subagents/landing.ts",
+    "extensions/onboarding/onboarded.ts",
     "extensions/sidebar/label.ts",
     "extensions/sidebar/listed.ts",
     "extensions/side-chat/logic.ts",
@@ -58,6 +61,7 @@
     "lib/ago.ts",
     "lib/compare.ts",
     "lib/context-usage.ts",
+    "lib/entries.ts",
     "extensions/subagents/message-types.ts",
     "test/web"
   ]

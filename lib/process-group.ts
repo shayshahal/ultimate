@@ -1,4 +1,4 @@
-import { execFileSync, spawn } from 'node:child_process'
+import { execFile, execFileSync, spawn } from 'node:child_process'
 import type { ChildProcessByStdio, SpawnOptions } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { mkdir, readdir, readFile, rm } from 'node:fs/promises'
@@ -6,6 +6,21 @@ import { constants as osConstants } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { Readable, Writable } from 'node:stream'
 import { setTimeout as sleep } from 'node:timers/promises'
+
+/**
+ * Windows has no process groups, setsid or TERM. There a group is the leader's process tree, ended at once with
+ * `taskkill /T /F` while the leader runs; what outlives the leader is not found again.
+ */
+const windows = process.platform === 'win32'
+
+/** End process `pid` and its descendants on Windows. */
+function killTree(pid: number) {
+  const taskkill = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe')
+  return new Promise<void>((resolve) =>
+    // taskkill fails when the tree already exited; the leader's exit tells whether it stopped.
+    execFile(taskkill, ['/T', '/F', '/PID', String(pid)], { windowsHide: true }, () => resolve()),
+  )
+}
 
 /** The program cannot start until its pid is recorded; a parent that dies before go gives EOF instead. */
 export const handshake = 'read -r _ || exit 1; exec "$0" "$@"'
@@ -117,6 +132,7 @@ export function spawnGroup(
   options: Omit<SpawnOptions, 'detached' | 'stdio'> & { pidFile?: string; grace?: number },
 ): Group {
   const { pidFile, grace = 3000, ...rest } = options
+  if (windows) return spawnTree(program, args, rest, pidFile)
   const child = spawn('/bin/sh', ['-c', handshake, program, ...args], {
     ...rest,
     detached: true,
@@ -158,6 +174,45 @@ export function spawnGroup(
   return { child, ended, closed }
 }
 
+/** `spawnGroup` on Windows: the program starts at once, its pid recorded right after. */
+function spawnTree(
+  program: string,
+  args: string[],
+  options: Omit<SpawnOptions, 'detached' | 'stdio'>,
+  pidFile?: string,
+): Group {
+  const child = spawn(program, args, {
+    ...options,
+    windowsHide: true,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  })
+  child.stdin.on('error', () => {
+    // A process that exits at once closes the pipe; its exit reports what happened.
+  })
+  const ended = new Promise<boolean>((resolve) => {
+    child.once('error', () => resolve(true))
+    child.once('exit', () => resolve(true))
+  })
+  const closed = new Promise<void>((resolve) => child.once('close', () => resolve()))
+  child.stdin.end()
+  if (child.pid !== undefined && pidFile) writeFileSync(pidFile, `${child.pid}\n`)
+  return { child, ended, closed }
+}
+
+/**
+ * How to run shell `command` with `runGroup`: `/bin/bash -c` (on Windows `cmd.exe /d /s /c`, quoted the way Node's
+ * own `shell` option quotes it, which `pnpm` scripts also run under).
+ */
+export function shellCommand(command: string, platform = process.platform, env = process.env) {
+  return platform === 'win32'
+    ? {
+        program: env.ComSpec ?? 'cmd.exe',
+        args: ['/d', '/s', '/c', `"${command}"`],
+        windowsVerbatimArguments: true,
+      }
+    : { program: '/bin/bash', args: ['-c', command], windowsVerbatimArguments: false }
+}
+
 /** A file's trimmed text, or undefined when there is none. */
 async function text(path: string) {
   try {
@@ -193,7 +248,11 @@ export async function stopGroup(
 ) {
   const { pidFile, leader, grace = 3000 } = options
   const unreaped = () => leader!.child.exitCode === null && leader!.child.signalCode === null
-  if (leader) {
+  if (leader && windows) {
+    if (unreaped()) await killTree(pid)
+    if ((await within(leader.ended, grace + 3500)) === undefined)
+      throw new Error(`Process tree ${pid} did not exit`)
+  } else if (leader) {
     if (unreaped()) {
       send(pid, 'SIGTERM')
       if ((await within(leader.ended, grace)) === undefined && unreaped()) send(pid, 'SIGKILL')
@@ -202,7 +261,7 @@ export async function stopGroup(
     // for all, so a group that reported a survivor is probed again: once empty, it exited after all.
     if (!(await within(leader.ended, grace + 3500)) && (unreaped() || probe(pid)))
       throw new Error(`Process group ${pid} did not exit`)
-  } else {
+  } else if (!windows) {
     const recorded = pidFile && (await readPidFile(pidFile)) === pid
     const start = recorded ? await text(`${pidFile}.start`) : undefined
     const ours =
@@ -212,6 +271,8 @@ export async function stopGroup(
         : identify(pid) === start)
     if (ours && !(await drain(pid, grace))) throw new Error(`Process group ${pid} did not exit`)
   }
+  // On Windows a pid without its leader cannot be verified as ours: it may name another process now, so only its file
+  // goes.
   if (pidFile && (await readPidFile(pidFile)) === pid) {
     await rm(`${pidFile}.start`, { force: true })
     await rm(pidFile, { force: true })
@@ -246,8 +307,10 @@ export async function runGroup(
   options: {
     cwd: string
     pidFile: string
+    env?: NodeJS.ProcessEnv
     signal?: AbortSignal
     grace?: number
+    windowsVerbatimArguments?: boolean
     onOutput: (text: string) => void
   },
 ) {

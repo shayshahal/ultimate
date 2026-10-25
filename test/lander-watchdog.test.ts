@@ -1,21 +1,26 @@
+import { mkdtemp, readdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { dirname, join } from 'node:path'
 import { withAbortSignal } from '@earendil-works/chord/context'
 import { afterEach, expect, it, vi } from 'vitest'
 import { context } from '../server/harness.ts'
-import { runGroup } from '../lib/process-group.ts'
+import { runGroup, shellCommand } from '../lib/process-group.ts'
 import {
   landerSettings,
   limitsFor,
   runLanderCheck as run,
 } from '../extensions/workspaces/lander.ts'
 
-vi.mock('../lib/process-group.ts', () => ({ runGroup: vi.fn<typeof runGroup>() }))
+vi.mock('../lib/process-group.ts', async (actual) => ({
+  ...(await actual<typeof import('../lib/process-group.ts')>()),
+  runGroup: vi.fn<typeof runGroup>(),
+}))
 const runLanderCheck = (
   path: string,
   command: string,
   ctx: typeof context,
-  limits?: Parameters<typeof run>[4],
-) => run(path, command, ctx, tmpdir(), limits)
+  limits?: Parameters<typeof run>[5],
+) => run(path, command, ctx, tmpdir(), tmpdir(), limits)
 
 afterEach(() => {
   vi.resetAllMocks()
@@ -139,6 +144,30 @@ it('preserves task cancellation instead of reporting a watchdog failure', async 
   expect(vi.getTimerCount()).toBe(0)
 })
 
+it('runs a check through bash, or through cmd.exe with the command quoted whole on Windows', async () => {
+  const command = 'pnpm check && echo "done"'
+  expect(shellCommand(command, 'linux', {})).toEqual({
+    program: '/bin/bash',
+    args: ['-c', command],
+    windowsVerbatimArguments: false,
+  })
+  const cmd = { program: 'cmd.exe', args: ['/d', '/s', '/c', `"${command}"`] }
+  expect(shellCommand(command, 'win32', {})).toEqual({ ...cmd, windowsVerbatimArguments: true })
+  expect(
+    shellCommand(command, 'win32', { ComSpec: 'C:\\Windows\\system32\\cmd.exe' }).program,
+  ).toBe('C:\\Windows\\system32\\cmd.exe')
+
+  vi.mocked(runGroup).mockResolvedValue(0)
+  await runLanderCheck('.', command, context)
+  const [program, args, options] = vi.mocked(runGroup).mock.calls[0]
+  const expected = shellCommand(command)
+  expect({ program, args, verbatim: options.windowsVerbatimArguments }).toEqual({
+    program: expected.program,
+    args: expected.args,
+    verbatim: expected.windowsVerbatimArguments,
+  })
+})
+
 it('keeps successful summaries and clears both timers', async () => {
   vi.useFakeTimers()
   vi.mocked(runGroup).mockImplementation(async (_program, _args, options) => {
@@ -147,4 +176,17 @@ it('keeps successful summaries and clears both timers', async () => {
   })
   expect(await runLanderCheck('.', 'print', context)).toEqual({ summary: 'last' })
   expect(vi.getTimerCount()).toBe(0)
+})
+
+it('gives each check its own TMPDIR in the given directory and removes it afterwards', async () => {
+  const temp = await mkdtemp(join(tmpdir(), 'lander-tmp-'))
+  let seen: string | undefined
+  vi.mocked(runGroup).mockImplementation(async (_program, _args, options) => {
+    seen = options.env?.TMPDIR
+    await writeFile(join(seen!, 'left'), '')
+    return 1
+  })
+  await run('.', 'pnpm test', context, tmpdir(), temp)
+  expect(seen && dirname(seen)).toBe(temp)
+  expect(await readdir(temp)).toEqual([])
 })

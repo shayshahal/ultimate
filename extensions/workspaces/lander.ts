@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdir, realpath, rm } from 'node:fs/promises'
+import { mkdirSync, mkdtempSync } from 'node:fs'
+import { mkdir, readdir, realpath, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 import { copyJson } from '@earendil-works/chord'
@@ -19,7 +20,7 @@ import type {
   Tx,
 } from '@earendil-works/pi-durable'
 import { git } from '../../lib/git.ts'
-import { runGroup, sweepPidFiles } from '../../lib/process-group.ts'
+import { runGroup, shellCommand, sweepPidFiles } from '../../lib/process-group.ts'
 import type { ExtensionHost } from '../../server/extensions.ts'
 import { definitionAgent, discoverAgents } from '../../lib/agents.ts'
 import { CheckRan, Handoff, SubmissionLanded } from './api.ts'
@@ -179,20 +180,41 @@ export const checkPids = (home: string) => join(home, 'lander-checks')
  * Stop the checks a previous process left running. Pi resumes a lander task before extensions open, so files of
  * this process name live checks, never leftovers.
  */
-export const sweepChecks = (home: string) =>
-  sweepPidFiles(checkPids(home), (name) => name.startsWith(`${process.pid}-`))
+export const sweepChecks = async (home: string) => {
+  await sweepPidFiles(checkPids(home), (name) => name.startsWith(`${process.pid}-`))
+  // Temporary directories of checks whose process stopped; a live check of this process made none yet.
+  const names = await readdir(checkTemp(home)).catch((error: NodeJS.ErrnoException) => {
+    // No check ever ran in this home.
+    if (error.code === 'ENOENT') return []
+    throw error
+  })
+  for (const name of names)
+    if (!name.startsWith(`${process.pid}-`))
+      await rm(join(checkTemp(home), name), { recursive: true, force: true })
+}
+/**
+ * Where checks keep temporary files: on disk under the project home, not in `/tmp`, which is often a small tmpfs
+ * that test suites fill (EDQUOT) when interrupted runs leave their directories behind.
+ */
+export const checkTemp = (home: string) => join(home, 'lander-tmp')
 
 /**
- * Run `command` with bash in its own process group, recorded in `pids` while it runs. The watchdog and task
- * cancellation both stop the whole group: TERM, then KILL after a short grace.
+ * Run `command` with bash (cmd.exe on Windows), in its own process group where the platform has them and as a tree
+ * ended by `taskkill` where it does not, recorded in `pids` while it runs, with `TMPDIR` set to a fresh directory in
+ * `temp` that is removed when it ends. The watchdog and task cancellation both stop the whole group: TERM, then KILL
+ * after a short grace.
  */
 export async function runLanderCheck(
   path: string,
   command: string,
   context: Context,
   pids: string,
+  temp: string,
   limits: CheckLimits = checkLimits,
 ) {
+  // Synchronous, so the watchdog's timers start in the same tick as the call.
+  mkdirSync(temp, { recursive: true })
+  const tmp = mkdtempSync(join(temp, `${process.pid}-`))
   let output = ''
   let partial = ''
   const failed = new Set<string>()
@@ -234,8 +256,11 @@ export async function runLanderCheck(
   try {
     let exitCode: number
     try {
-      exitCode = await runGroup('/bin/bash', ['-c', command], {
+      const { program, args, windowsVerbatimArguments } = shellCommand(command)
+      exitCode = await runGroup(program, args, {
         cwd: path,
+        env: { ...process.env, TMPDIR: tmp },
+        windowsVerbatimArguments,
         pidFile: join(pids, `${process.pid}-${randomUUID()}.pid`),
         signal,
         grace: 2000,
@@ -253,6 +278,7 @@ export async function runLanderCheck(
   } finally {
     clearTimeout(stallTimer)
     clearTimeout(totalTimer)
+    await rm(tmp, { recursive: true, force: true })
   }
 }
 
@@ -843,6 +869,7 @@ export function createLander(
                   command,
                   checkContext,
                   checkPids(host.home),
+                  checkTemp(host.home),
                   limitsFor(members[member], limits),
                 )
               /** One command: its first run, then one rerun when that failed; its output tail if it failed twice. */

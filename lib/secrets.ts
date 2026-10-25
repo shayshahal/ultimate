@@ -17,6 +17,11 @@ export function validateValue(value: unknown): asserts value is string {
   )
     throw new Error('Secret value must be non-empty, at most 16 KiB, with no NUL or newline')
 }
+// Windows has no POSIX mode: Node reports 0o666 on NTFS whatever the ACLs say, and the store sits in the user's own
+// profile, so the mode is checked only where it means something.
+export function unsafeStoreMode(mode: number, platform = process.platform) {
+  return platform !== 'win32' && (mode & 0o077) !== 0
+}
 export async function readStore(userHome: string): Promise<Store> {
   const path = join(userHome, '.ultimate/secrets.json')
   let file
@@ -27,8 +32,7 @@ export async function readStore(userHome: string): Promise<Store> {
     throw new Error('Cannot open secret store', { cause: error })
   }
   try {
-    // NTFS governs the store by ACL, not permission bits, so `mode` carries no such meaning on Windows.
-    if (process.platform !== 'win32' && (await file.stat()).mode & 0o077)
+    if (unsafeStoreMode((await file.stat()).mode))
       throw new Error('Secret store permissions are unsafe. Run chmod 600 ~/.ultimate/secrets.json')
     let data: Store
     try {
