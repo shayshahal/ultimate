@@ -21,14 +21,17 @@ const unpacked = () =>
 /** Chrome and Edge as installed by a person, which run fine under Playwright. */
 const installed = () =>
   process.platform === 'win32'
-    ? [process.env.PROGRAMFILES, process.env['PROGRAMFILES(X86)'], process.env.LOCALAPPDATA].flatMap(
-        (root) =>
-          root
-            ? [
-                join(root, 'Google/Chrome/Application/chrome.exe'),
-                join(root, 'Microsoft/Edge/Application/msedge.exe'),
-              ]
-            : [],
+    ? [
+        process.env.PROGRAMFILES,
+        process.env['PROGRAMFILES(X86)'],
+        process.env.LOCALAPPDATA,
+      ].flatMap((root) =>
+        root
+          ? [
+              join(root, 'Google/Chrome/Application/chrome.exe'),
+              join(root, 'Microsoft/Edge/Application/msedge.exe'),
+            ]
+          : [],
       )
     : ['/usr/bin/chromium', '/usr/bin/google-chrome-stable']
 

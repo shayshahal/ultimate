@@ -668,9 +668,7 @@ export async function loadExtensions(
         }
         for (const module of modules ?? []) visit(module)
         for (const module of visited) vite.moduleGraph.invalidateModule(module)
-        const name = directory
-          ? file.slice(slashed(directory).length + 1).split('/')[0]
-          : undefined
+        const name = directory ? file.slice(slashed(directory).length + 1).split('/')[0] : undefined
         const servers = new Set(selected)
         if (name) {
           selected.add(name)

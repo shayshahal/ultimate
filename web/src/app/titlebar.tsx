@@ -24,7 +24,9 @@ import { sidebarWidthBeyondPhone } from './primitives.tsx'
 /** Whether this server's state lives outside `~/.ultimate/projects`, as a test preview's does. */
 const isPreview = (system: SystemInfo | undefined) =>
   !!system &&
-  !slashed(system.persistence.path).startsWith(`${slashed(system.machine.home)}/.ultimate/projects/`)
+  !slashed(system.persistence.path).startsWith(
+    `${slashed(system.machine.home)}/.ultimate/projects/`,
+  )
 
 /**
  * The project as tabs name it: its folder from home. A branch's checkout (`<home>/worktrees/<id>`) is the project's
