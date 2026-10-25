@@ -2,7 +2,7 @@ import { chmod, mkdir, stat, writeFile } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
 import { fauxServer, removeTemp, temp, until } from '../helpers.ts'
-import { readSecret, secretMetadata, validateValue } from '../../lib/secrets.ts'
+import { readSecret, secretMetadata, unsafeStoreMode, validateValue } from '../../lib/secrets.ts'
 import { writeSecret } from '../../extensions/secrets/store.ts'
 
 const homes: string[] = []
@@ -16,20 +16,36 @@ async function home() {
   homes.push(value)
   return value
 }
-it('stores atomically under concurrent sets with private modes, refuses unsafe files, and deletes', async () => {
+it('stores atomically under concurrent sets, reads and deletes', async () => {
   const root = await home()
   await Promise.all(
     Array.from({ length: 12 }, (_, i) => writeSecret(root, `KEY_${i}`, `value-${i}`)),
   )
-  expect((await stat(join(root, '.ultimate'))).mode & 0o777).toBe(0o700)
-  expect((await stat(join(root, '.ultimate/secrets.json'))).mode & 0o777).toBe(0o600)
   expect(await secretMetadata(root)).toHaveLength(12)
   expect(await readSecret(root, 'KEY_1')).toBe('value-1')
   await writeSecret(root, 'KEY_1')
   expect(await readSecret(root, 'KEY_1')).toBeUndefined()
-  await chmod(join(root, '.ultimate/secrets.json'), 0o644)
-  await expect(readSecret(root, 'KEY_0')).rejects.toThrow('chmod 600')
-  await expect(writeSecret(root, 'KEY_0', 'new')).rejects.toThrow('chmod 600')
+})
+it.skipIf(process.platform === 'win32')(
+  'writes private modes and refuses a store other users can read',
+  async () => {
+    const root = await home()
+    await writeSecret(root, 'KEY_0', 'value-0')
+    expect((await stat(join(root, '.ultimate'))).mode & 0o777).toBe(0o700)
+    expect((await stat(join(root, '.ultimate/secrets.json'))).mode & 0o777).toBe(0o600)
+    await chmod(join(root, '.ultimate/secrets.json'), 0o644)
+    await expect(readSecret(root, 'KEY_0')).rejects.toThrow('chmod 600')
+    await expect(writeSecret(root, 'KEY_0', 'new')).rejects.toThrow('chmod 600')
+  },
+)
+it('checks the store mode only where it means something: Node reports 0o666 on Windows whatever the ACLs say', () => {
+  for (const platform of ['linux', 'darwin'] as const) {
+    expect(unsafeStoreMode(0o100666, platform)).toBe(true)
+    expect(unsafeStoreMode(0o100640, platform)).toBe(true)
+    expect(unsafeStoreMode(0o100600, platform)).toBe(false)
+  }
+  expect(unsafeStoreMode(0o100666, 'win32')).toBe(false)
+  expect(unsafeStoreMode(0o100666)).toBe(process.platform !== 'win32')
 })
 it('validates values without echoing them', () => {
   for (const value of ['', 'x\n', 'x\r', 'x\0', 'ü'.repeat(8193)])

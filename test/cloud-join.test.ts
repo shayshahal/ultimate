@@ -9,7 +9,7 @@ import { fauxAssistantMessage, fauxToolCall } from '@earendil-works/pi-ai/provid
 import { writeSecret } from '../extensions/secrets/store.ts'
 import { cloudUrl, join, joinState, saveCloud } from '../extensions/cloud/join.ts'
 import type { JoinDeps } from '../extensions/cloud/join.ts'
-import { readStore } from '../lib/secrets.ts'
+import { readStore, unsafeStoreMode } from '../lib/secrets.ts'
 import { writeJson } from '../lib/json-file.ts'
 import { context } from '../server/harness.ts'
 import { fauxServer, post, temp } from './helpers.ts'
@@ -102,7 +102,8 @@ it('stores both secrets and cloud.url/cloud.machine after the cloud answers 200,
     ULTIMATE_CLOUD_TOKEN: TOKEN,
     ULTIMATE_CLOUD_SNAPSHOT_KEY: KEY,
   })
-  expect((await stat(path(userHome, '.ultimate/secrets.json'))).mode & 0o777).toBe(0o600)
+  // The join writes a store the reader accepts on this platform: private on POSIX, whatever NTFS reports on Windows.
+  expect(unsafeStoreMode((await stat(path(userHome, '.ultimate/secrets.json'))).mode)).toBe(false)
   // Other settings stay.
   expect(await settings()).toEqual({
     theme: 'dark',
